@@ -4,6 +4,7 @@ friendly_name: Kubernetes AKS Job
 description: Creates an AKS job/task backed by Azure Container Registry.
 category: app
 subcategory: container
+app_type: generic
 provider_types:
     - azure
 platform: k8s
