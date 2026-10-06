@@ -22,15 +22,22 @@ resource "azurerm_key_vault" "app" {
 }
 
 resource "azurerm_key_vault_secret" "app_secret" {
-  for_each = local.managed_secret_keys
+  for_each = data.ns_env_layout.this.managed_secret_keys
 
   name         = lower(replace("${local.resource_name}-${each.value}", "/[^a-zA-Z0-9-]/", "-"))
-  value        = local.managed_secret_values[each.value]
+  value        = data.ns_env_values.this.secrets[each.value]
   key_vault_id = azurerm_key_vault.app.id
   tags         = local.tags
 }
 
 locals {
+  // all_secrets is a map of name => secret name in Azure Key Vault
+  // This is keyed from `ns_env_layout` so that the keys are known at plan time
+  all_secrets = merge(
+    { for key in data.ns_env_layout.this.unmanaged_secret_keys : key => data.ns_env_values.this.unmanaged_secret_refs[key] },
+    { for key, secret in azurerm_key_vault_secret.app_secret : key => secret.name },
+  )
+
   app_secret_store_name = "${local.resource_name}-akv-secrets"
 }
 
@@ -63,7 +70,7 @@ resource "kubernetes_manifest" "akv_secret_store" {
 resource "kubernetes_manifest" "secrets_from_akv" {
   depends_on = [kubernetes_manifest.akv_secret_store]
 
-  count = signum(length(local.all_secret_keys))
+  count = signum(length(data.ns_env_layout.this.all_secret_keys))
 
   manifest = {
     apiVersion = "external-secrets.io/v1"
@@ -94,8 +101,5 @@ resource "kubernetes_manifest" "secrets_from_akv" {
 }
 
 locals {
-  managed_secrets_versions = {
-    for key in local.managed_secret_keys : key => azurerm_key_vault_secret.app_secret[key].version
-  }
-  secrets_checksum = sha256(jsonencode(local.managed_secrets_versions))
+  secrets_checksum = sha256(jsonencode({ for key, secret in azurerm_key_vault_secret.app_secret : key => secret.version }))
 }

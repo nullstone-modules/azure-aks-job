@@ -61,8 +61,9 @@ resource "kubernetes_cron_job_v1" "this" {
               image = "${local.repository_url}:${local.app_version}"
               args  = local.command
 
+              // env vars with plain "value"
               dynamic "env" {
-                for_each = local.all_env_vars
+                for_each = data.ns_env_values.this.env_variables
 
                 content {
                   name  = env.key
@@ -70,14 +71,75 @@ resource "kubernetes_cron_job_v1" "this" {
                 }
               }
 
+              // env vars with "{{ k8s.field(apiVersion, fieldPath) }}"
               dynamic "env" {
-                for_each = toset(local.all_secret_keys)
+                for_each = data.ns_env_values.this.field_refs
+                content {
+                  name = env.key
+                  value_from {
+                    field_ref {
+                      api_version = env.value.api_version
+                      field_path  = env.value.field_path
+                    }
+                  }
+                }
+              }
+
+              // env vars with "{{ k8s.configMap(key, name[, optional]) }}"
+              dynamic "env" {
+                for_each = data.ns_env_values.this.config_map_refs
+                content {
+                  name = env.key
+                  value_from {
+                    config_map_key_ref {
+                      key      = env.value.key
+                      name     = env.value.name
+                      optional = env.value.optional
+                    }
+                  }
+                }
+              }
+
+              // env vars with "{{ k8s.resourceField(resource[, container, divisor]) }}"
+              dynamic "env" {
+                for_each = data.ns_env_values.this.resource_field_refs
+                content {
+                  name = env.key
+                  value_from {
+                    resource_field_ref {
+                      resource       = env.value.resource
+                      container_name = env.value.container
+                      divisor        = env.value.divisor
+                    }
+                  }
+                }
+              }
+
+              // env vars with "{{ k8s.fileKey(key, path, volumeName) }}"
+              // Requires K8s 1.34+ and EnvFiles feature gate
+              dynamic "env" {
+                for_each = data.ns_env_values.this.file_key_refs
+                content {
+                  name = env.key
+                  value_from {
+                    file_key_ref {
+                      key         = env.value.key
+                      path        = env.value.path
+                      volume_name = env.value.volume_name
+                    }
+                  }
+                }
+              }
+
+              // env vars with "{{ secret() }}"
+              dynamic "env" {
+                for_each = data.ns_env_layout.this.all_secret_keys
 
                 content {
                   name = env.value
                   value_from {
                     secret_key_ref {
-                      name = "${local.resource_name}-akv-secrets"
+                      name = local.app_secret_store_name
                       key  = env.value
                     }
                   }
